@@ -5,27 +5,37 @@ const sendPinSMS = async (phoneNumber, pinCode, cardType) => {
     `Visit waecdirect.org to check your results.\n` +
     `Thank you!`;
 
+  // Africa's Talking expects phone in international format: +233XXXXXXXXX
+  const formattedPhone = phoneNumber.startsWith("0")
+    ? "+233" + phoneNumber.slice(1)
+    : phoneNumber;
+
+  const params = new URLSearchParams({
+    username: process.env.AT_USERNAME,
+    to: formattedPhone,
+    message: message,
+    from: "WaecSell", // your registered sender ID
+  });
+
   try {
-    const res = await fetch("https://sms.arkesel.com/api/v2/sms/send", {
+    const res = await fetch("https://api.africastalking.com/version1/messaging", {
       method: "POST",
       headers: {
-        "api-key": process.env.ARKESEL_API_KEY,
-        "Content-Type": "application/json",
+        apiKey: process.env.AT_API_KEY,
+        "Content-Type": "application/x-www-form-urlencoded",
+        Accept: "application/json",
       },
-      body: JSON.stringify({
-        sender: process.env.ARKESEL_SENDER_ID || "WaecSell",
-        message,
-        recipients: [phoneNumber],
-      }),
+      body: params.toString(),
     });
 
     const data = await res.json();
+    const recipient = data.SMSMessageData?.Recipients?.[0];
 
-    if (data.status === "success") {
-      console.log(`SMS sent to ${phoneNumber}`);
+    if (recipient?.status === "Success") {
+      console.log(`SMS sent to ${formattedPhone}`);
       return { success: true, data };
     } else {
-      console.error("Arkesel error:", data);
+      console.error("AT SMS error:", data);
       return { success: false, data };
     }
   } catch (err) {

@@ -99,7 +99,7 @@ router.post("/", async (req, res) => {
         response =
           `CON WASSCE Checker\n` +
           `Select checker type:\n\n` +
-          `1. School Candidate\n` +
+          `1. wassce Candidate\n` +
           `2. Private Candidate\n` +
           `0. Back`;
 

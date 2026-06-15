@@ -5,6 +5,7 @@ const OrderSchema = new mongoose.Schema(
     phone: { type: String, required: true },
     pin: { type: mongoose.Schema.Types.ObjectId, ref: "Pin", required: true },
     pinCode: { type: String, required: true },   // store plaintext for SMS resend
+    serial: { type: String, default: null },    // store serial for SMS resend
     cardType: { type: String, enum: ["BECE", "WASSCE_SCHOOL", "WASSCE_PRIVATE"], required: true },
     amount: { type: Number, required: true },
     paystackReference: { type: String, default: null },

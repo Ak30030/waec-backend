@@ -44,6 +44,7 @@ const saveOrders = async (pins, phone, type, price) => {
       phone,
       pin: pin._id,
       pinCode: pin.code,
+      serial: pin.serial || null,
       cardType: type,
       amount: price,
       paymentStatus: "paid",
@@ -303,9 +304,10 @@ router.post("/", async (req, res) => {
               `END No vouchers found for\n${momoNumber}.\n\n` +
               `Please check the number and try again.`;
           } else {
-            const pinList = orders.map((o, i) =>
-              `Voucher ${i + 1}:\nType: ${o.cardType}\nPIN: ${o.pinCode}`
-            ).join("\n\n");
+            // fixed
+const pinList = orders.map((o, i) =>
+  `Voucher ${i + 1}:\nType: ${o.cardType}\nSerial: ${o.serial || "N/A"}\nPIN: ${o.pinCode}`
+).join("\n\n");
             await sendPinSMS(formattedSearch, pinList, "Retrieved");
             response =
               `END Your voucher(s) have been\n` +

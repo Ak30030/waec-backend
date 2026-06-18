@@ -15,6 +15,8 @@ const app = express();
 connectDB();
 
 // Middleware
+app.use(express.json());
+app.use(express.urlencoded({ extended: true })); // USSD sends form-encoded data
 app.use(cors({
   origin: [
     "http://localhost:5173",
@@ -22,8 +24,6 @@ app.use(cors({
   ],
   credentials: true,
 }));
-app.use(express.json());
-app.use(express.urlencoded({ extended: true })); // USSD sends form-encoded data
 
 // Routes
 app.use("/ussd", ussdRoutes);

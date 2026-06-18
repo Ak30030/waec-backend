@@ -14,16 +14,18 @@ const app = express();
 // Connect to MongoDB
 connectDB();
 
-// Middleware
-app.use(express.json());
-app.use(express.urlencoded({ extended: true })); // USSD sends form-encoded data
+// CORS — must be before everything else
 app.use(cors({
   origin: [
     "http://localhost:5173",
-    "https://your-admin-panel.vercel.app", // add this later when deployed
+    "https://your-admin-panel.vercel.app",
   ],
   credentials: true,
 }));
+
+// Middleware
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
 // Routes
 app.use("/ussd", ussdRoutes);

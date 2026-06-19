@@ -14,16 +14,13 @@ const app = express();
 // Connect to MongoDB
 connectDB();
 
-// CORS — must be before everything else
-app.use(cors({
-  origin: [
-    "http://localhost:5173",
-    "https://your-admin-panel.vercel.app",
-  ],
-  credentials: true,
-}));
 
 // Middleware
+app.use(cors({
+    origin:'*',
+    methods: ['GET', 'POST', 'PUT', 'DELETE'],
+    allowedHeaders: ['Content-Type', 'Authorization']
+}))
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 

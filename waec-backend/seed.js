@@ -5,7 +5,7 @@ import AdminUser from "./models/AdminUser.js";
 
 await mongoose.connect(process.env.MONGO_URI);
 
-const exists = await AdminUser.findOne({ email: "fred@yourdomain.com" });
+const exists = await AdminUser.findOne({ email: "awuntubafredrick@gmail.com" });
 if (exists) {
   console.log("Superadmin already exists");
   process.exit();

@@ -13,8 +13,8 @@ if (exists) {
 
 await AdminUser.create({
   name: "Fred",
-  email: "fred@yourdomain.com",
-  password: "YourSecurePassword123",
+  email: "awuntubafredrick@gmail.com",
+  password: "FreD@123",
   role: "superadmin",
 });
 

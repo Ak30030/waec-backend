@@ -18,7 +18,7 @@ router.get("/", protect, async (req, res) => {
 });
 
 // PUT /admin/settings — superadmin only
-router.put("/", protect, superadminOnly, async (req, res) => {
+router.put("/", protect, async (req, res) => {
   try {
     const { BECE, WASSCE_SCHOOL, WASSCE_PRIVATE, bulkContactNumber } = req.body;
 

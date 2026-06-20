@@ -2,12 +2,19 @@ const express = require("express");
 const router = express.Router();
 const Pin = require("../models/Pin");
 const Order = require("../models/Order");
+const Settings = require("../models/Settings");
 const { sendPinSMS } = require("../services/sms");
 
-const PRICES = {
-  WASSCE_SCHOOL: Number(process.env.WASSCE_SCHOOL_PRICE) || 15,
-  WASSCE_PRIVATE: Number(process.env.WASSCE_PRIVATE_PRICE) || 15,
-  BECE: Number(process.env.BECE_PRICE) || 12,
+// Helper: get current prices from DB (falls back to defaults if missing)
+const getPrices = async () => {
+  let settings = await Settings.findOne({ key: "prices" });
+  if (!settings) settings = await Settings.create({ key: "prices" });
+  return {
+    BECE: settings.BECE,
+    WASSCE_SCHOOL: settings.WASSCE_SCHOOL,
+    WASSCE_PRIVATE: settings.WASSCE_PRIVATE,
+    bulkContactNumber: settings.bulkContactNumber,
+  };
 };
 
 // Helper: pick multiple available PINs atomically
@@ -67,6 +74,8 @@ router.post("/", async (req, res) => {
   let response = "";
 
   try {
+    // Live prices fetched fresh on every request
+    const PRICES = await getPrices();
 
     // ── MAIN MENU ───────────────────────────────────────────────
     if (text === "") {
@@ -269,7 +278,7 @@ router.post("/", async (req, res) => {
       response =
         `END For bulk purchases please\n` +
         `contact us on:\n` +
-        `0244131805\n\n` +
+        `${PRICES.bulkContactNumber}\n\n` +
         `We will get back to you shortly.`;
 
     // ══════════════════════════════════════════════════════════════
@@ -304,10 +313,9 @@ router.post("/", async (req, res) => {
               `END No vouchers found for\n${momoNumber}.\n\n` +
               `Please check the number and try again.`;
           } else {
-            // fixed
-const pinList = orders.map((o, i) =>
-  `Voucher ${i + 1}:\nType: ${o.cardType}\nSerial: ${o.serial || "N/A"}\nPIN: ${o.pinCode}`
-).join("\n\n");
+            const pinList = orders.map((o, i) =>
+              `Voucher ${i + 1}:\nType: ${o.cardType}\nSerial: ${o.serial || "N/A"}\nPIN: ${o.pinCode}`
+            ).join("\n\n");
             await sendPinSMS(formattedSearch, pinList, "Retrieved");
             response =
               `END Your voucher(s) have been\n` +

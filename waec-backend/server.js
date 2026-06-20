@@ -8,6 +8,7 @@ const adminRoutes = require("./routes/admin");
 const authRoutes = require("./routes/auth");
 const pinRoutes = require("./routes/pins");
 const orderRoutes = require("./routes/orders");
+const settingsRoutes = require("./routes/settings");
 
 const app = express();
 
@@ -29,6 +30,7 @@ app.use("/ussd", ussdRoutes);
 app.use("/auth", authRoutes);
 app.use("/admin/pins", pinRoutes);
 app.use("/admin/orders", orderRoutes);
+app.use("/admin/settings", settingsRoutes);
 app.use("/admin", adminRoutes);
 
 // Health check

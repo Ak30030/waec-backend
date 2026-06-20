@@ -1,7 +1,7 @@
 const express = require("express");
 const router = express.Router();
 const Pin = require("../models/Pin");
-const { protect, superadminOnly } = require("../middleware/authAdmin");
+const { protect } = require("../middleware/authAdmin");
 
 // All pin routes require login
 router.use(protect);
@@ -40,7 +40,7 @@ router.get("/summary", async (req, res) => {
 
 // POST /admin/pins/bulk — upload pins from JSON array
 // Body: { pins: [{ code: "1234-5678-9012", type: "BECE" }, ...] }
-router.post("/bulk", superadminOnly, async (req, res) => {
+router.post("/bulk", async (req, res) => {
   try {
     const { pins } = req.body;
     if (!Array.isArray(pins) || pins.length === 0) {
@@ -63,8 +63,8 @@ router.post("/bulk", superadminOnly, async (req, res) => {
   }
 });
 
-// DELETE /admin/pins/:id — superadmin only
-router.delete("/:id", superadminOnly, async (req, res) => {
+// DELETE /admin/pins/:id — any logged-in admin
+router.delete("/:id", async (req, res) => {
   try {
     const pin = await Pin.findById(req.params.id);
     if (!pin) return res.status(404).json({ message: "PIN not found" });

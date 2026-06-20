@@ -25,7 +25,7 @@ router.post("/login", async (req, res) => {
 });
 
 // POST /auth/register — superadmin only (create new admins)
-router.post("/register", protect, superadminOnly, async (req, res) => {
+router.post("/register", protect, async (req, res) => {
   const { name, email, password, role } = req.body;
   try {
     const exists = await AdminUser.findOne({ email });

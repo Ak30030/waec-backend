@@ -6,7 +6,7 @@ const { protect, superadminOnly } = require("../middleware/authAdmin");
 router.use(protect);
 
 // GET /admin/users — list all admins (superadmin only)
-router.get("/users", superadminOnly, async (req, res) => {
+router.get("/users",  async (req, res) => {
   try {
     const users = await AdminUser.find().select("-password").sort({ createdAt: -1 });
     res.json(users);
@@ -16,7 +16,7 @@ router.get("/users", superadminOnly, async (req, res) => {
 });
 
 // DELETE /admin/users/:id — superadmin only
-router.delete("/users/:id", superadminOnly, async (req, res) => {
+router.delete("/users/:id", async (req, res) => {
   try {
     if (req.params.id === req.admin._id.toString()) {
       return res.status(400).json({ message: "Cannot delete your own account" });

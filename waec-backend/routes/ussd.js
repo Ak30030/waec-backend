@@ -5,7 +5,7 @@ const Order = require("../models/Order");
 const Settings = require("../models/Settings");
 const { sendPinSMS } = require("../services/sms");
 
-// Helper: get current prices from DB (falls back to defaults if missing)
+// Helper: get current prices from DB
 const getPrices = async () => {
   let settings = await Settings.findOne({ key: "prices" });
   if (!settings) settings = await Settings.create({ key: "prices" });
@@ -61,86 +61,112 @@ const saveOrders = async (pins, phone, type, price) => {
   }
 };
 
+// Helper: build NALO response
+// MSGTYPE: false = keep session open (CON), true = end session (END)
+const naloResponse = (res, USERID, MSISDN, message, keepOpen) => {
+  res.json({
+    USERID,
+    MSISDN,
+    MSG: message,
+    MSGTYPE: !keepOpen, // false = continue, true = end
+  });
+};
+
 router.post("/", async (req, res) => {
-  const { phoneNumber, text } = req.body;
+  // NALO field names (uppercase)
+  const { USERID, MSISDN, USERDATA, MSGTYPE } = req.body;
 
-  const normalizedPhone = phoneNumber.startsWith("0")
-    ? "+233" + phoneNumber.slice(1)
-    : phoneNumber.startsWith("+233")
-    ? phoneNumber
-    : "+233" + phoneNumber;
+  console.log("NALO USSD request:", { USERID, MSISDN, USERDATA, MSGTYPE });
 
+  // Normalize phone to +233 format for internal use
+  const normalizedPhone = MSISDN.startsWith("0")
+    ? "+233" + MSISDN.slice(1)
+    : MSISDN.startsWith("233")
+    ? "+" + MSISDN
+    : MSISDN.startsWith("+233")
+    ? MSISDN
+    : "+" + MSISDN;
+
+  const text = USERDATA || "";
   const inputs = text ? text.split("*") : [];
-  let response = "";
 
   try {
     // Live prices fetched fresh on every request
     const PRICES = await getPrices();
 
     // ── MAIN MENU ───────────────────────────────────────────────
-    if (text === "") {
-      response =
-        `CON Welcome to WaecSell\n` +
+    if (text === "" || text === null) {
+      return naloResponse(res, USERID, MSISDN,
+        `Welcome to WaecSell\n` +
         `Buy your Result Checker Voucher\n\n` +
         `1. WASSCE Checker\n` +
         `2. BECE Checker\n` +
         `3. Buy in Bulk\n` +
         `4. Retrieve Voucher\n` +
-        `0. Exit`;
+        `0. Exit`,
+        true // keep open
+      );
 
     // ── EXIT ────────────────────────────────────────────────────
     } else if (text === "0") {
-      response = "END Thank you for using WaecSell. Goodbye!";
+      return naloResponse(res, USERID, MSISDN,
+        "Thank you for using WaecSell. Goodbye!",
+        false // end session
+      );
 
     // ══════════════════════════════════════════════════════════════
     // OPTION 1 — WASSCE CHECKER
     // ══════════════════════════════════════════════════════════════
     } else if (inputs[0] === "1") {
 
-      // 1 → WASSCE type selection
       if (inputs.length === 1) {
-        response =
-          `CON WASSCE Checker\n` +
+        return naloResponse(res, USERID, MSISDN,
+          `WASSCE Checker\n` +
           `Select checker type:\n\n` +
-          `1. Wassce Candidate\n` +
+          `1. School Candidate\n` +
           `2. Private Candidate\n` +
-          `0. Back`;
+          `0. Back`,
+          true
+        );
 
-      // 1*0 → back to main menu
       } else if (inputs[1] === "0") {
-        response =
-          `CON Welcome to WaecSell\n` +
-          `Buy your Result Checker Voucher\n\n` +
+        return naloResponse(res, USERID, MSISDN,
+          `Welcome to WaecSell\n\n` +
           `1. WASSCE Checker\n` +
           `2. BECE Checker\n` +
           `3. Buy in Bulk\n` +
           `4. Retrieve Voucher\n` +
-          `0. Exit`;
+          `0. Exit`,
+          true
+        );
 
-      // 1*1 or 1*2 → quantity
       } else if (inputs.length === 2 && (inputs[1] === "1" || inputs[1] === "2")) {
         const type = inputs[1] === "1" ? "WASSCE_SCHOOL" : "WASSCE_PRIVATE";
         const label = inputs[1] === "1" ? "School" : "Private";
-        response =
-          `CON WASSCE ${label} Checker\n` +
+        return naloResponse(res, USERID, MSISDN,
+          `WASSCE ${label} Checker\n` +
           `Price: GHS ${PRICES[type]} each\n\n` +
-          `Enter quantity (1-5):`;
+          `Enter quantity (1-5):`,
+          true
+        );
 
-      // 1*1*qty → enter MoMo number
       } else if (inputs.length === 3) {
         const qty = parseInt(inputs[2]);
         if (isNaN(qty) || qty < 1 || qty > 5) {
-          response = "END Invalid quantity. Please enter a number between 1 and 5.";
-        } else {
-          const type = inputs[1] === "1" ? "WASSCE_SCHOOL" : "WASSCE_PRIVATE";
-          const total = PRICES[type] * qty;
-          response =
-            `CON Enter your MoMo number to pay:\n` +
-            `Total: GHS ${total} for ${qty} voucher(s)\n\n` +
-            `(e.g. 0241234567)`;
+          return naloResponse(res, USERID, MSISDN,
+            "Invalid quantity. Please enter a number between 1 and 5.",
+            false
+          );
         }
+        const type = inputs[1] === "1" ? "WASSCE_SCHOOL" : "WASSCE_PRIVATE";
+        const total = PRICES[type] * qty;
+        return naloResponse(res, USERID, MSISDN,
+          `Enter your MoMo number to pay:\n` +
+          `Total: GHS ${total} for ${qty} voucher(s)\n\n` +
+          `(e.g. 0241234567)`,
+          true
+        );
 
-      // 1*1*qty*phone → confirm
       } else if (inputs.length === 4) {
         const qty = parseInt(inputs[2]);
         const momoNumber = inputs[3];
@@ -150,22 +176,25 @@ router.post("/", async (req, res) => {
         const phoneRegex = /^0[235][0-9]{8}$/;
 
         if (!phoneRegex.test(momoNumber)) {
-          response = "END Invalid MoMo number. Please try again with a valid Ghana number.";
-        } else {
-          response =
-            `CON Confirm Purchase\n\n` +
-            `Type: WASSCE ${label}\n` +
-            `Quantity: ${qty}\n` +
-            `Amount: GHS ${total}\n` +
-            `MoMo: ${momoNumber}\n\n` +
-            `1. Confirm & Pay\n` +
-            `2. Cancel`;
+          return naloResponse(res, USERID, MSISDN,
+            "Invalid MoMo number. Please try again with a valid Ghana number.",
+            false
+          );
         }
+        return naloResponse(res, USERID, MSISDN,
+          `Confirm Purchase\n\n` +
+          `Type: WASSCE ${label}\n` +
+          `Quantity: ${qty}\n` +
+          `Amount: GHS ${total}\n` +
+          `MoMo: ${momoNumber}\n\n` +
+          `1. Confirm & Pay\n` +
+          `2. Cancel`,
+          true
+        );
 
-      // 1*1*qty*phone*1 → process payment
       } else if (inputs.length === 5) {
         if (inputs[4] === "2") {
-          response = "END Purchase cancelled. Thank you!";
+          return naloResponse(res, USERID, MSISDN, "Purchase cancelled. Thank you!", false);
         } else if (inputs[4] === "1") {
           const qty = parseInt(inputs[2]);
           const momoNumber = inputs[3];
@@ -174,24 +203,30 @@ router.post("/", async (req, res) => {
 
           const hasStock = await checkStock(type, qty);
           if (!hasStock) {
-            response = `END Sorry, not enough WASSCE ${label} vouchers in stock.\nPlease try a smaller quantity or check back later.`;
-          } else {
-            const pins = await pickPins(type, qty);
-            if (pins.length < qty) {
-              response = "END Sorry, stock ran out during your purchase. Please try again.";
-            } else {
-              await saveOrders(pins, normalizedPhone, type, PRICES[type]);
-              const pinList = buildPinList(pins);
-              await sendPinSMS(normalizedPhone, pinList, `WASSCE ${label}`);
-              response =
-                `END Payment successful!\n` +
-                `Your ${qty} WASSCE ${label} PIN(s)\n` +
-                `have been sent to ${momoNumber} via SMS.\n` +
-                `Check your messages now.`;
-            }
+            return naloResponse(res, USERID, MSISDN,
+              `Sorry, not enough WASSCE ${label} vouchers in stock.\nPlease try a smaller quantity or check back later.`,
+              false
+            );
           }
+          const pins = await pickPins(type, qty);
+          if (pins.length < qty) {
+            return naloResponse(res, USERID, MSISDN,
+              "Sorry, stock ran out during your purchase. Please try again.",
+              false
+            );
+          }
+          await saveOrders(pins, normalizedPhone, type, PRICES[type]);
+          const pinList = buildPinList(pins);
+          await sendPinSMS(normalizedPhone, pinList, `WASSCE ${label}`);
+          return naloResponse(res, USERID, MSISDN,
+            `Payment successful!\n` +
+            `Your ${qty} WASSCE ${label} PIN(s)\n` +
+            `have been sent to ${momoNumber} via SMS.\n` +
+            `Check your messages now.`,
+            false
+          );
         } else {
-          response = "END Invalid option. Please try again.";
+          return naloResponse(res, USERID, MSISDN, "Invalid option. Please try again.", false);
         }
       }
 
@@ -200,27 +235,30 @@ router.post("/", async (req, res) => {
     // ══════════════════════════════════════════════════════════════
     } else if (inputs[0] === "2") {
 
-      // 2 → quantity
       if (inputs.length === 1) {
-        response =
-          `CON BECE Checker\n` +
+        return naloResponse(res, USERID, MSISDN,
+          `BECE Checker\n` +
           `Price: GHS ${PRICES.BECE} each\n\n` +
-          `Enter quantity (1-5):`;
+          `Enter quantity (1-5):`,
+          true
+        );
 
-      // 2*qty → MoMo number
       } else if (inputs.length === 2) {
         const qty = parseInt(inputs[1]);
         if (isNaN(qty) || qty < 1 || qty > 5) {
-          response = "END Invalid quantity. Please enter a number between 1 and 5.";
-        } else {
-          const total = PRICES.BECE * qty;
-          response =
-            `CON Enter your MoMo number to pay:\n` +
-            `Total: GHS ${total} for ${qty} voucher(s)\n\n` +
-            `(e.g. 0241234567)`;
+          return naloResponse(res, USERID, MSISDN,
+            "Invalid quantity. Please enter a number between 1 and 5.",
+            false
+          );
         }
+        const total = PRICES.BECE * qty;
+        return naloResponse(res, USERID, MSISDN,
+          `Enter your MoMo number to pay:\n` +
+          `Total: GHS ${total} for ${qty} voucher(s)\n\n` +
+          `(e.g. 0241234567)`,
+          true
+        );
 
-      // 2*qty*phone → confirm
       } else if (inputs.length === 3) {
         const qty = parseInt(inputs[1]);
         const momoNumber = inputs[2];
@@ -228,114 +266,127 @@ router.post("/", async (req, res) => {
         const phoneRegex = /^0[235][0-9]{8}$/;
 
         if (!phoneRegex.test(momoNumber)) {
-          response = "END Invalid MoMo number. Please try again.";
-        } else {
-          response =
-            `CON Confirm Purchase\n\n` +
-            `Type: BECE\n` +
-            `Quantity: ${qty}\n` +
-            `Amount: GHS ${total}\n` +
-            `MoMo: ${momoNumber}\n\n` +
-            `1. Confirm & Pay\n` +
-            `2. Cancel`;
+          return naloResponse(res, USERID, MSISDN,
+            "Invalid MoMo number. Please try again.",
+            false
+          );
         }
+        return naloResponse(res, USERID, MSISDN,
+          `Confirm Purchase\n\n` +
+          `Type: BECE\n` +
+          `Quantity: ${qty}\n` +
+          `Amount: GHS ${total}\n` +
+          `MoMo: ${momoNumber}\n\n` +
+          `1. Confirm & Pay\n` +
+          `2. Cancel`,
+          true
+        );
 
-      // 2*qty*phone*1 → process
       } else if (inputs.length === 4) {
         if (inputs[3] === "2") {
-          response = "END Purchase cancelled. Thank you!";
+          return naloResponse(res, USERID, MSISDN, "Purchase cancelled. Thank you!", false);
         } else if (inputs[3] === "1") {
           const qty = parseInt(inputs[1]);
           const momoNumber = inputs[2];
 
           const hasStock = await checkStock("BECE", qty);
           if (!hasStock) {
-            response = "END Sorry, not enough BECE vouchers in stock.\nPlease try a smaller quantity or check back later.";
-          } else {
-            const pins = await pickPins("BECE", qty);
-            if (pins.length < qty) {
-              response = "END Sorry, stock ran out during your purchase. Please try again.";
-            } else {
-              await saveOrders(pins, normalizedPhone, "BECE", PRICES.BECE);
-              const pinList = buildPinList(pins);
-              await sendPinSMS(normalizedPhone, pinList, "BECE");
-              response =
-                `END Payment successful!\n` +
-                `Your ${qty} BECE PIN(s) have been\n` +
-                `sent to ${momoNumber} via SMS.\n` +
-                `Check your messages now.`;
-            }
+            return naloResponse(res, USERID, MSISDN,
+              "Sorry, not enough BECE vouchers in stock.\nPlease try a smaller quantity or check back later.",
+              false
+            );
           }
+          const pins = await pickPins("BECE", qty);
+          if (pins.length < qty) {
+            return naloResponse(res, USERID, MSISDN,
+              "Sorry, stock ran out during your purchase. Please try again.",
+              false
+            );
+          }
+          await saveOrders(pins, normalizedPhone, "BECE", PRICES.BECE);
+          const pinList = buildPinList(pins);
+          await sendPinSMS(normalizedPhone, pinList, "BECE");
+          return naloResponse(res, USERID, MSISDN,
+            `Payment successful!\n` +
+            `Your ${qty} BECE PIN(s) have been\n` +
+            `sent to ${momoNumber} via SMS.\n` +
+            `Check your messages now.`,
+            false
+          );
         } else {
-          response = "END Invalid option. Please try again.";
+          return naloResponse(res, USERID, MSISDN, "Invalid option. Please try again.", false);
         }
       }
 
     // ══════════════════════════════════════════════════════════════
-    // OPTION 3 — BUY IN BULK (contact only)
+    // OPTION 3 — BUY IN BULK
     // ══════════════════════════════════════════════════════════════
     } else if (inputs[0] === "3") {
-      response =
-        `END For bulk purchases please\n` +
+      return naloResponse(res, USERID, MSISDN,
+        `For bulk purchases please\n` +
         `contact us on:\n` +
         `${PRICES.bulkContactNumber}\n\n` +
-        `We will get back to you shortly.`;
+        `We will get back to you shortly.`,
+        false
+      );
 
     // ══════════════════════════════════════════════════════════════
     // OPTION 4 — RETRIEVE VOUCHER
     // ══════════════════════════════════════════════════════════════
     } else if (inputs[0] === "4") {
 
-      // 4 → ask for phone number
       if (inputs.length === 1) {
-        response =
-          `CON Retrieve Your Voucher\n\n` +
+        return naloResponse(res, USERID, MSISDN,
+          `Retrieve Your Voucher\n\n` +
           `Enter the phone number used\n` +
           `during purchase:\n` +
-          `(e.g. 0241234567)`;
+          `(e.g. 0241234567)`,
+          true
+        );
 
-      // 4*phone → find and resend PINs
       } else if (inputs.length === 2) {
         const momoNumber = inputs[1];
         const phoneRegex = /^0[235][0-9]{8}$/;
 
         if (!phoneRegex.test(momoNumber)) {
-          response = "END Invalid phone number. Please try again.";
-        } else {
-          const formattedSearch = "+233" + momoNumber.slice(1);
-
-          const orders = await Order.find({ phone: formattedSearch, paymentStatus: "paid" })
-            .sort({ createdAt: -1 })
-            .limit(5);
-
-          if (orders.length === 0) {
-            response =
-              `END No vouchers found for\n${momoNumber}.\n\n` +
-              `Please check the number and try again.`;
-          } else {
-            const pinList = orders.map((o, i) =>
-              `Voucher ${i + 1}:\nType: ${o.cardType}\nSerial: ${o.serial || "N/A"}\nPIN: ${o.pinCode}`
-            ).join("\n\n");
-            await sendPinSMS(formattedSearch, pinList, "Retrieved");
-            response =
-              `END Your voucher(s) have been\n` +
-              `resent to ${momoNumber} via SMS.\n` +
-              `Check your messages now.`;
-          }
+          return naloResponse(res, USERID, MSISDN,
+            "Invalid phone number. Please try again.",
+            false
+          );
         }
+
+        const formattedSearch = "+233" + momoNumber.slice(1);
+        const orders = await Order.find({ phone: formattedSearch, paymentStatus: "paid" })
+          .sort({ createdAt: -1 })
+          .limit(5);
+
+        if (orders.length === 0) {
+          return naloResponse(res, USERID, MSISDN,
+            `No vouchers found for\n${momoNumber}.\n\nPlease check the number and try again.`,
+            false
+          );
+        }
+
+        const pinList = orders.map((o, i) =>
+          `Voucher ${i + 1}:\nType: ${o.cardType}\nSerial: ${o.serial || "N/A"}\nPIN: ${o.pinCode}`
+        ).join("\n\n");
+        await sendPinSMS(formattedSearch, pinList, "Retrieved");
+        return naloResponse(res, USERID, MSISDN,
+          `Your voucher(s) have been\n` +
+          `resent to ${momoNumber} via SMS.\n` +
+          `Check your messages now.`,
+          false
+        );
       }
 
     } else {
-      response = "END Invalid option. Please try again.";
+      return naloResponse(res, USERID, MSISDN, "Invalid option. Please try again.", false);
     }
 
   } catch (err) {
     console.error("USSD error:", err);
-    response = "END An error occurred. Please try again.";
+    return naloResponse(res, USERID, MSISDN, "An error occurred. Please try again.", false);
   }
-
-  res.set("Content-Type", "text/plain");
-  res.send(response);
 });
 
 module.exports = router;

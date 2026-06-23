@@ -1,63 +1,61 @@
 const sendPinSMS = async (phoneNumber, pinCode, cardType) => {
-  const message =
-    `Your WAEC ${cardType} Result Checker PIN:\n` +
-    `PIN: ${pinCode}\n` +
-    `Visit waecdirect.org to check your results.\n` +
-    `Thank you!`;
+ const resultLinks = {
+  BECE: "https://eresults.waecgh.org",
+  WASSCE_SCHOOL: "https://waecdirect.org",
+  WASSCE_PRIVATE: "https://waecdirect.org",
+};
 
-  const formattedPhone = phoneNumber.startsWith("0")
-    ? "+233" + phoneNumber.slice(1)
-    : phoneNumber.startsWith("+233")
-    ? phoneNumber
-    : "+233" + phoneNumber;
+// Pick the right link based on card type
+const resultLink = resultLinks[cardType] || "https://waecdirect.org";
 
-  const params = new URLSearchParams({
-    username: process.env.AT_USERNAME,
-    to: formattedPhone,
-    message: message,
-  });
+const message =
+  `Your WAEC ${cardType} Result Checker:\n` +
+  `${pinCode}\n\n` +
+  `Visit ${resultLink} to check your results.\n` +
+  `Thank you!`;
 
-  if (process.env.AT_SENDER_ID) {
-    params.append("from", process.env.AT_SENDER_ID);
-  }
+  // NALO expects phone in international format without +: 233XXXXXXXXX
+  const formattedPhone = phoneNumber.startsWith("+")
+    ? phoneNumber.slice(1)
+    : phoneNumber.startsWith("0")
+    ? "233" + phoneNumber.slice(1)
+    : phoneNumber;
 
   console.log("Sending SMS to:", formattedPhone);
-  console.log("AT_USERNAME:", process.env.AT_USERNAME);
-  console.log("AT_API_KEY set:", !!process.env.AT_API_KEY);
+  console.log("NALO_USERNAME set:", !!process.env.NALO_USERNAME);
 
   try {
-    const url = process.env.AT_USERNAME === "sandbox"
-      ? "https://api.sandbox.africastalking.com/version1/messaging"
-      : "https://api.africastalking.com/version1/messaging";
-
-    const res = await fetch(url, {
+    const res = await fetch(process.env.NALO_SMS_URL || "https://api.nalosolutions.com/smsservice/api/sendmessage", {
       method: "POST",
       headers: {
-        apiKey: process.env.AT_API_KEY,
-        "Content-Type": "application/x-www-form-urlencoded",
-        Accept: "application/json",
+        "Content-Type": "application/json",
       },
-      body: params.toString(),
+      body: JSON.stringify({
+        username: process.env.NALO_USERNAME,
+        password: process.env.NALO_PASSWORD,
+        msisdn: formattedPhone,
+        message: message,
+        sender_id: process.env.NALO_SENDER_ID || "eCards",
+      }),
     });
 
     const rawText = await res.text();
-    console.log("AT Raw Response:", rawText);
+    console.log("NALO SMS Raw Response:", rawText);
 
     let data;
     try {
       data = JSON.parse(rawText);
     } catch (e) {
-      console.error("AT returned non-JSON:", rawText);
+      console.error("NALO returned non-JSON:", rawText);
       return { success: false, error: rawText };
     }
 
-    const recipient = data.SMSMessageData?.Recipients?.[0];
-
-    if (recipient?.status === "Success") {
+    // NALO returns status code 1000 for success — adjust if their docs say otherwise
+    if (data.status === "1000" || data.status === 1000 || data.code === "1000") {
       console.log(`SMS sent successfully to ${formattedPhone}`);
       return { success: true, data };
     } else {
-      console.error("AT SMS failed:", JSON.stringify(data));
+      console.error("NALO SMS failed:", JSON.stringify(data));
       return { success: false, data };
     }
   } catch (err) {
